@@ -1,7 +1,7 @@
-from components.register import Register
-from components.alu import ALU
-from components.control_unit import ControlUnit
-from components.ram import RAM
+from ..components.register import Register
+from ..components.alu import ALU
+from ..components.control_unit import ControlUnit
+from ..components.ram import RAM
 
 class RegisterFile:
     """一个专门用于管理CPU内部所有寄存器的容器类。"""
@@ -125,3 +125,14 @@ class CPU:
 
         # 决定下一个微指令地址
         self.cu.sequence(self.rf.IR.read(), self.rf.FLAGS.read() & 1)
+        
+        def reset(self):
+            """Resets all registers and the halted flag."""
+            self.rf.PC.reset()
+            self.rf.ACC.reset()
+            self.rf.IR.reset()
+            self.rf.MAR.reset()
+            self.rf.MDR.reset()
+            self.rf.FLAG.reset()
+            self.halted = False
+            self.input_device_val = 0

@@ -26,3 +26,7 @@ class Register:
     def __repr__(self) -> str:
         """提供一个便于调试的字符串表示形式。"""
         return f"{self.name}: 0x{self.value:02X} (0b{self.value:08b})"
+    
+    def reset(self):
+        """Resets the register's value to 0."""
+        self.value = 0

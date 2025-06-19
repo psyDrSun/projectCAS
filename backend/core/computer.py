@@ -1,5 +1,5 @@
 from .cpu import CPU
-from components.ram import RAM
+from ..components.ram import RAM
 
 class Computer:
     """
@@ -46,3 +46,8 @@ class Computer:
         status += f"RAM[0x00-0x0F]: {' '.join([f'{val:02X}' for val in self.ram.memory[0:16]])}\n"
         status += "========================================"
         return status
+    
+    def reset(self):
+        """Resets the entire computer."""
+        self.cpu.reset()
+        self.ram.reset()

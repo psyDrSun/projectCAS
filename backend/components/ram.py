@@ -20,3 +20,7 @@ class RAM:
     def reset(self):
         """将所有内存单元清零。"""
         self.memory = [0] * self.size
+
+    def reset(self):
+        """Resets all memory locations to 0."""
+        self.memory = [0] * self.size
