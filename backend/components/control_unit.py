@@ -1,52 +1,59 @@
-from .register import Register
-
-DEFAULT_HEX_ROM = {0x00: "03A001"}
-
 class ControlUnit:
     """
-    模拟微程序控制器。
-    它根据当前指令和状态，决定下一个微操作。
+    The Control Unit (CU) is responsible for decoding instructions
+    and orchestrating the CPU's components to execute them.
     """
     def __init__(self):
-        self.uPC = Register("uPC") # 微程序计数器
+        # Defines the instruction set architecture (ISA)
+        # Key is the 4-bit opcode.
+        self.OPCODES = {
+            0x0: {'name': 'NOP', 'args': 0},
+            0x1: {'name': 'LDA', 'args': 1}, # Load Accumulator from memory
+            0x2: {'name': 'STA', 'args': 1}, # Store Accumulator to memory
+            0x3: {'name': 'ADD', 'args': 1}, # Add memory to Accumulator
+            0x4: {'name': 'IN', 'args': 0},  # Input to Accumulator
+            0x5: {'name': 'OUT', 'args': 0}, # Output from Accumulator
+            0x6: {'name': 'JMP', 'args': 1}, # Unconditional Jump
+            0x7: {'name': 'JZ', 'args': 1},  # Jump if Zero flag is set
+            0x8: {'name': 'JC', 'args': 1},  # Jump if Carry flag is set
+            0xF: {'name': 'HALT', 'args': 0},# Halt the CPU
+        }
 
-    def sequence(self, ir_val: int, cy_flag: int):
+    def decode(self, instruction_code: int) -> dict:
         """
-        微程序定序逻辑。
-        根据指令和标志位决定下一个微地址 (uPC)。
+        Decodes a raw instruction byte into a dictionary.
+        This is the missing method that caused the crash.
         """
-        current_upc = self.uPC.read()
-        
-        # 定义所有微程序流的终点微地址
-        terminal_addresses = {0x14, 0x16, 0x18, 0x1B, 0x1F, 0x20, 0x24}
-        
-        if current_upc in terminal_addresses:
-            self.uPC.write(0)  # 返回取指周期
-            return
-        
-        # 跳转逻辑
-        next_upc = 0
-        if current_upc == 1:  # 取指完成，进入指令译码
-            op_code_group = (ir_val >> 6) & 0b11
-            op_code_low = (ir_val >> 4) & 0b11
-            if op_code_group == 0:
-                next_upc = 0x02  # 所有访存指令进入公共取操作数序列
-            elif op_code_group == 1: next_upc = 0x14 + op_code_low
-            elif op_code_group == 2: next_upc = 0x18 + op_code_low
-            else: next_upc = 0x1C + op_code_low
-        elif current_upc == 0x05:  # 访存指令译码
-            op_code_low = (ir_val >> 4) & 0b11
-            if op_code_low == 0b11:  # BZC
-                 next_upc = 0x23
-            else:  # LDA/STA/JMP
-                 next_upc = 0x20
-        elif current_upc == 0x23:  # BZC 条件判断
-            next_upc = 0x24 if cy_flag == 1 else 0
-        else:  # 默认顺序执行
-            next_upc = current_upc + 1
+        if not isinstance(instruction_code, int):
+            return self.OPCODES[0x0] # Return NOP for invalid input
 
-        self.uPC.write(next_upc)
+        opcode_val = (instruction_code & 0xF0) >> 4
+        operand = instruction_code & 0x0F
 
-    def reset(self):
-        """重置控制单元状态。"""
-        self.uPC.reset()
+        # Find the instruction details from the ISA definition
+        instruction_details = self.OPCODES.get(opcode_val, self.OPCODES[0x0]) # Default to NOP
+        instruction_details['operand'] = operand
+        return instruction_details
+
+    def execute(self, opcode: dict, rf, ram, alu, cpu_instance):
+        """
+        Executes the logic for a decoded instruction.
+        This method's logic should be filled out to handle each instruction.
+        """
+        op_name = opcode.get('name')
+        operand = opcode.get('operand')
+
+        # This is where the detailed logic for each instruction would go.
+        # For our current visualization, the core logic is handled by the
+        # micro-step generator in cpu.py. This method can be expanded later.
+        if op_name == 'HALT':
+            cpu_instance.halted = True
+        
+        # Example of how other instructions would be handled here in a non-visual run.
+        # elif op_name == 'LDA':
+        #     rf.ACC.write(ram.read(operand))
+        # elif op_name == 'ADD':
+        #     val = ram.read(operand)
+        #     alu.add(val)
+        
+        pass

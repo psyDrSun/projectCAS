@@ -1,140 +1,128 @@
 import sys
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QGraphicsView, QGraphicsScene,
-                             QToolBar, QAction, QDockWidget, QTextEdit, QVBoxLayout,
-                             QWidget, QPushButton, QPlainTextEdit)
-from PyQt5.QtCore import Qt, QPointF, QTimer
-from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import QMainWindow, QApplication, QWidget, QHBoxLayout, QToolBar, QAction
+from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtGui import QIcon # Optional, for icons on buttons
 
-from .graphical_components import RamItem, CpuItem, Bus
 from backend.core.computer import Computer
+from .canvas_widget import CanvasWidget
+from .left_panel import LeftPanel
+from . import circuit_layout as layout
 
 class MainWindow(QMainWindow):
+    """
+    The main application window. It orchestrates the UI components (LeftPanel, CanvasWidget)
+    and manages the simulation flow by interacting with the backend computer model.
+    """
     def __init__(self, computer: Computer):
         super().__init__()
         self.computer = computer
-        self.setWindowTitle("projectCAS Visual Simulator (Logisim Style)")
-        self.setGeometry(100, 100, 1600, 900)
+        self.micro_step_generator = None
 
-        self.scene = QGraphicsScene()
-        self.scene.setSceneRect(0, 0, 1500, 1000)
-        self.view = QGraphicsView(self.scene)
-        self.view.setRenderHint(QApplication.instance().style().styleHint(1)) # Antialiasing
-        self.setCentralWidget(self.view)
+        self.setWindowTitle("projectCAS - Turing Complete Visualizer")
+        self.setGeometry(50, 50, 1400, 800)
+        self.setStyleSheet(f"background-color: {layout.THEME['background']};")
 
-        self.init_ui()
-        self.load_computer_state()
+        # --- Central Widget and Layout ---
+        main_widget = QWidget()
+        self.setCentralWidget(main_widget)
+        # Use a horizontal layout to place the left panel and the canvas side-by-side
+        self.main_layout = QHBoxLayout(main_widget)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
 
-    def init_ui(self):
-        self.create_docks()
+        # --- UI Components ---
+        self.left_panel = LeftPanel()
+        self.canvas = CanvasWidget()
+        
+        self.main_layout.addWidget(self.left_panel)
+        self.main_layout.addWidget(self.canvas, 1) # The '1' gives the canvas more stretch space
+
+        # --- Simulation Timer ---
+        self.simulation_timer = QTimer(self)
+        self.simulation_timer.timeout.connect(self.do_one_micro_step)
+        
         self.create_toolbar()
-        self.draw_computer_layout()
+        self.reset_computer() # Initialize the view on startup
 
     def create_toolbar(self):
-        toolbar = QToolBar("Controls")
-        self.addToolBar(toolbar)
-        load_action = QAction("Load Program", self)
-        load_action.triggered.connect(self.load_program)
-        toolbar.addAction(load_action)
-        step_action = QAction("Step Macro", self)
-        step_action.triggered.connect(self.step_macro)
+        """Creates the top toolbar with simulation controls."""
+        toolbar = self.addToolBar("Controls")
+        toolbar.setMovable(False)
+        toolbar.setStyleSheet(f"""
+            QToolBar {{
+                background-color: {layout.THEME['component_bg']};
+                border-bottom: 1px solid {layout.THEME['component_border']};
+                spacing: 10px;
+                padding: 5px;
+            }}
+            QToolButton {{
+                color: {layout.THEME['component_label']};
+                font-weight: bold;
+            }}
+        """)
+        
+        # Run/Pause button (checkable)
+        self.run_action = QAction("Run", self, checkable=True)
+        self.run_action.toggled.connect(self.toggle_run)
+        toolbar.addAction(self.run_action)
+
+        # Single Step button
+        step_action = QAction("Step", self)
+        step_action.triggered.connect(self.do_one_micro_step)
         toolbar.addAction(step_action)
+
+        # Reset button
         reset_action = QAction("Reset", self)
         reset_action.triggered.connect(self.reset_computer)
         toolbar.addAction(reset_action)
 
-    def create_docks(self):
-        program_dock = QDockWidget("Program Code", self)
-        self.addDockWidget(Qt.LeftDockWidgetArea, program_dock)
-        program_widget = QWidget()
-        program_layout = QVBoxLayout()
-        self.program_input = QPlainTextEdit()
-        self.program_input.setFont(QFont("Courier New", 12))
-        self.program_input.setPlaceholderText("Enter program hex codes, e.g., 44 46 98...")
-        program_layout.addWidget(self.program_input)
-        program_widget.setLayout(program_layout)
-        program_dock.setWidget(program_widget)
+    def toggle_run(self, checked: bool):
+        """Starts or stops the continuous simulation timer."""
+        if checked:
+            self.run_action.setText("Pause")
+            self.simulation_timer.start(250) # Time in ms per micro-step
+        else:
+            self.run_action.setText("Run")
+            self.simulation_timer.stop()
 
-        status_dock = QDockWidget("Status", self)
-        self.addDockWidget(Qt.RightDockWidgetArea, status_dock)
-        self.status_display = QTextEdit()
-        self.status_display.setReadOnly(True)
-        self.status_display.setFont(QFont("Courier New", 11))
-        status_dock.setWidget(self.status_display)
+    def do_one_micro_step(self):
+        """Executes a single micro-step and updates the entire UI."""
+        if self.run_action.isChecked() and self.simulation_timer.isActive() == False:
+             self.run_action.setChecked(False) # Stop if we reach the end in run mode
+             return
 
-    def draw_computer_layout(self):
-        """Draws the main components on the canvas."""
-        self.cpu_item = CpuItem(600, 200)
-        self.ram_item = RamItem(100, 150, 256)
+        if self.micro_step_generator is None:
+            # If there's no active generator, create one for the next macro instruction
+            self.micro_step_generator = self.computer.get_micro_step_generator()
         
-        self.scene.addItem(self.cpu_item)
-        self.scene.addItem(self.ram_item)
-
-        # Connect components with orthogonal buses
-        self.address_bus = Bus(self.cpu_item.get_port_pos('addr_out'), self.ram_item.get_port_pos('addr_in'))
-        self.data_bus = Bus(self.cpu_item.get_port_pos('data_io'), self.ram_item.get_port_pos('data_io'))
-        self.scene.addItem(self.address_bus)
-        self.scene.addItem(self.data_bus)
-
-    def load_computer_state(self):
-        """Loads the current state from the backend and updates the UI."""
-        self.ram_item.update_memory(self.computer.ram.memory)
-        self.cpu_item.update_registers(self.computer.cpu.rf)
-        self.status_display.setText(self.computer.get_full_status())
-
-    def load_program(self):
-        """Loads the program from the input box into the computer's memory."""
         try:
-            self.reset_computer()
-            code_text = self.program_input.toPlainText().strip()
-            if not code_text:
-                program_code = [0x44, 0x46, 0x98, 0x81, 0xF5, 0x0C, 0x00, 0x60]
-                self.program_input.setPlainText(' '.join(f'{b:02X}' for b in program_code))
-            else:
-                program_code = [int(hex_byte, 16) for hex_byte in code_text.split()]
-            
-            self.computer.load_program(program_code)
-            self.load_computer_state()
-            self.status_display.append("\nProgram loaded successfully.")
-        except ValueError as e:
-            self.status_display.append(f"\nError loading program: {e}")
-
-    def step_macro(self):
-        """Executes one macro instruction step with animations."""
-        if self.computer.cpu.halted:
-            self.status_display.append("\n--- CPU HALTED ---")
-            return
-
-        # --- FETCH Animation ---
-        pc_val = self.computer.cpu.rf.PC.read()
-        
-        # 1. PC -> MAR, pulse Address Bus
-        self.cpu_item.get_register_item('PC').highlight()
-        self.cpu_item.get_register_item('MAR').highlight()
-        self.address_bus.pulse()
-        QApplication.processEvents()
-        QTimer.singleShot(400, lambda: self.fetch_animation_part2(pc_val))
-
-    def fetch_animation_part2(self, pc_val):
-        # 2. RAM -> MDR, pulse Data Bus
-        self.data_bus.pulse()
-        self.cpu_item.get_register_item('MDR').highlight()
-        QApplication.processEvents()
-        QTimer.singleShot(400, lambda: self.execute_and_update(pc_val))
-
-    def execute_and_update(self, pc_val):
-        # --- EXECUTE in backend ---
-        self.computer.run_single_macro_step()
-        
-        # --- UPDATE UI ---
-        self.load_computer_state()
-        self.status_display.append(f"\n--- Executed Macro Instruction at PC=0x{pc_val:02X} ---")
-
-        # Unhighlight all registers
-        for reg in self.cpu_item.registers.values():
-            reg.unhighlight()
+            # Fetch the next state from the backend's generator
+            state = next(self.micro_step_generator)
+            # Distribute the new state to all frontend components that need it
+            self.canvas.update_state(state)
+            self.left_panel.update_state(state)
+        except StopIteration:
+            # The current macro instruction is finished.
+            self.micro_step_generator = None
+            if self.run_action.isChecked(): # If in run mode, automatically start the next instruction
+                 self.do_one_micro_step()
+            else: # If in step mode, just stop and wait for the user
+                 print("Macro-instruction finished. Ready for next step.")
 
     def reset_computer(self):
-        """Resets the computer to its initial state."""
+        """Resets the backend computer and the entire UI to its initial state."""
+        if self.simulation_timer.isActive():
+            self.run_action.setChecked(False) # This will also stop the timer
+        
         self.computer.reset()
-        self.load_computer_state()
-        self.status_display.setText("--- Computer Reset ---")
+        # For demonstration, load the default program upon reset
+        program_code = [0x44, 0x46, 0x98, 0x81, 0xF5, 0x0C, 0x00, 0x60]
+        self.computer.load_program(program_code)
+        
+        self.micro_step_generator = None
+        # Get the initial state from the reset computer
+        initial_state = self.computer.cpu._get_current_state()
+        # Update UI to reflect the initial state
+        self.canvas.update_state(initial_state)
+        self.left_panel.update_state(initial_state)
+        print("Computer has been reset and program is loaded.")
